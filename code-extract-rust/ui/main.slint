@@ -1,0 +1,367 @@
+import {
+    Button,
+    VerticalBox,
+    LineEdit,
+    TextEdit,
+    GroupBox,
+    HorizontalBox,
+    CheckBox,
+    ScrollView,
+    StandardListView,
+} from "std-widgets.slint";
+
+export struct LanguageStats {
+    name: string,
+    count: int,
+    enabled: bool,
+}
+
+export struct FileItem {
+    path: string,
+    size: string,
+    excluded: bool,
+}
+
+export component AppWindow inherits Window {
+    title: "软著代码提取助手 Pro (Rust Native)";
+    preferred-width: 1200px;
+    preferred-height: 800px;
+
+    // 回调
+    callback select-dir();
+    callback start-scan();
+    callback start-extract();
+    callback toggle-language(string, bool);
+    callback add-exclude-rule(string);
+    callback remove-exclude-rule(int);
+    callback start-export();
+
+    // 状态属性
+    in-out property <string> root-path: "未选择目录";
+    in-out property <float> progress: 0.0;
+    in-out property <string> status-msg: "就绪";
+    in-out property <[LanguageStats]> languages: [];
+    in-out property <[string]> exclude-rules: [".git", "node_modules", "bin", "obj", "target"];
+    
+    // 录入信息
+    in-out property <string> software-name: "";
+    in-out property <string> app-version: "V1.0";
+
+    // 统计数据
+    in-out property <int> total-files: 0;
+    in-out property <int> total-lines: 0;
+    in-out property <int> cleaned-lines: 0;
+    in-out property <int> estimated-pages: 0;
+    in-out property <string> preview-text: "请选择目录并开始分析...";
+    HorizontalBox {
+        padding: 15px;
+        spacing: 15px;
+
+        // 左侧栏：文件过滤与规则 (300px)
+        VerticalBox {
+            width: 320px;
+            spacing: 12px;
+            GroupBox {
+                title: "1. 项目入口";
+                VerticalBox {
+                    HorizontalBox {
+                        LineEdit {
+                            text: root-path;
+                            read-only: true;
+                        }
+
+                        Button {
+                            text: "浏览";
+                            width: 60px;
+                            clicked => {
+                                select-dir()
+                            }
+                        }
+                    }
+
+                    Button {
+                        text: "🔍 立即扫描项目结构";
+                        primary: true;
+                        clicked => {
+                            start-scan()
+                        }
+                    }
+                }
+            }
+
+            GroupBox {
+                title: "2. 排除规则 (Gitignore 风格)";
+                VerticalBox {
+                    spacing: 8px;
+                    HorizontalBox {
+                        rule_input := LineEdit {
+                            placeholder-text: "输入规则 (如 *.log)";
+                        }
+
+                        Button {
+                            text: "添加";
+                            clicked => {
+                                if (rule_input.text != "") {
+                                    add-exclude-rule(rule_input.text);
+                                    rule_input.text = "";
+                                }
+                            }
+                        }
+                    }
+
+                    ScrollView {
+                        height: 150px;
+                        VerticalBox {
+                            alignment: start;
+                            for rule[idx] in exclude-rules: HorizontalBox {
+                                Text {
+                                    text: rule;
+                                    vertical-alignment: center;
+                                }
+
+                                Rectangle { }
+
+                                Button {
+                                    text: "×";
+                                    width: 30px;
+                                    clicked => {
+                                        remove-exclude-rule(idx)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            GroupBox {
+                title: "3. 语言筛选 (智能识别)";
+                ScrollView {
+                    height: 200px;
+                    VerticalBox {
+                        alignment: start;
+                        for lang in languages: CheckBox {
+                            text: lang.name + " (" + lang.count + ")";
+                            checked: lang.enabled;
+                            toggled => {
+                                toggle-language(lang.name, self.checked)
+                            }
+                        }
+                        if (languages.length == 0): Text {
+                            text: "暂无扫描结果";
+                            font-italic: true;
+                            color: #888;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 中间栏：统计与预览 (主显示区)
+        VerticalBox {
+            spacing: 15px;
+            GroupBox {
+                title: "配置与指标";
+                VerticalBox {
+                    spacing: 12px;
+                    HorizontalBox {
+                        spacing: 20px;
+                        CheckBox {
+                            text: "去注释";
+                            checked: true;
+                        }
+
+                        CheckBox {
+                            text: "去导包/引用";
+                            checked: true;
+                        }
+
+                        CheckBox {
+                            text: "压缩空行";
+                            checked: true;
+                        }
+
+                        Rectangle { } // spacer
+                        HorizontalBox {
+                            Text {
+                                text: "高级正则: ";
+                                vertical-alignment: center;
+                            }
+
+                            LineEdit {
+                                placeholder-text: "自定义过滤正则...";
+                                width: 150px;
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: #ddd;
+                    } // 分割线
+                    
+                    HorizontalBox {
+                        alignment: space-around;
+                        VerticalBox {
+                            Text {
+                                text: "原始行数";
+                                font-size: 14px;
+                                color: #666;
+                                horizontal-alignment: center;
+                            }
+
+                            Text {
+                                text: total-lines;
+                                font-size: 24px;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                            }
+                        }
+
+                        VerticalBox {
+                            Text {
+                                text: "清洗后行数";
+                                font-size: 14px;
+                                color: #666;
+                                horizontal-alignment: center;
+                            }
+
+                            Text {
+                                text: cleaned_lines;
+                                font-size: 24px;
+                                font-weight: 700;
+                                color: #2e7d32;
+                                horizontal-alignment: center;
+                            }
+                        }
+
+                        VerticalBox {
+                            Text {
+                                text: "预计页数";
+                                font-size: 14px;
+                                color: #666;
+                                horizontal-alignment: center;
+                            }
+
+                            Text {
+                                text: estimated-pages;
+                                font-size: 24px;
+                                font-weight: 700;
+                                color: estimated-pages >= 60 ? #2e7d32 : #d32f2f;
+                                horizontal-alignment: center;
+                            }
+                        }
+
+                        VerticalBox {
+                            Text {
+                                text: "文件总数";
+                                font-size: 14px;
+                                color: #666;
+                                horizontal-alignment: center;
+                            }
+
+                            Text {
+                                text: total-files;
+                                font-size: 24px;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+
+            GroupBox {
+                title: "代码抽取预览 (前 2000 字符)";
+                VerticalBox {
+                    TextEdit {
+                        text: preview-text;
+                        read-only: true;
+                        font-family: "Consolas";
+                        font-size: 13px;
+                    }
+                }
+            }
+        }
+
+        // 右侧栏/底部栏整合：生成操作
+        VerticalBox {
+            width: 260px;
+            spacing: 15px;
+            GroupBox {
+                title: "4. 软著申请信息";
+                VerticalBox {
+                    spacing: 10px;
+                    Text {
+                        text: "软件全称:";
+                    }
+
+                    LineEdit {
+                        text: software-name;
+                        edited(t) => {
+                            software-name = t
+                        }
+                    }
+
+                    Text {
+                        text: "软件版本:";
+                    }
+
+                    LineEdit {
+                        text: app-version;
+                        edited(t) => {
+                            app-version = t
+                        }
+                    }
+                }
+            }
+
+            GroupBox {
+                title: "操作";
+                VerticalBox {
+                    spacing: 12px;
+                    status_text := Text {
+                        text: status-msg;
+                        wrap: word-wrap;
+                        color: #555;
+                        font-size: 12px;
+                    }
+                    
+                    // 进度条
+                    Rectangle {
+                        height: 8px;
+                        background: #eee;
+                        border-radius: 4px;
+                        Rectangle {
+                            x: 0;
+                            width: parent.width * progress;
+                            height: parent.height;
+                            background: #2196f3;
+                            border-radius: 4px;
+                        }
+                    }
+
+                    Button {
+                        text: "⚙ 运行清洗与分析";
+                        primary: true;
+                        height: 40px;
+                        clicked => {
+                            start-extract()
+                        }
+                    }
+
+                    Button {
+                        text: "📄 一键导出 Word (.docx)";
+                        enabled: estimated_pages > 0;
+                        height: 40px;
+                        clicked => {
+                            start-export()
+                        }
+                    }
+                }
+            }
+
+            Rectangle { } // spacer
+        }
+    }
+}
